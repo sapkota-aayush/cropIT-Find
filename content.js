@@ -57,8 +57,9 @@
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.06) inset,
     0 18px 48px rgba(0, 0, 0, 0.45);
-  animation: cp-pop 0.16s linear;
+  animation: none;
   overflow: hidden;
+  contain: layout paint;
 }
 .cp-close {
   position: absolute;
@@ -86,6 +87,7 @@
   padding: 20px 18px 18px;
   overflow-y: auto;
   max-height: min(86vh, 720px);
+  scrollbar-gutter: stable both-edges;
 }
 .cp-badge {
   margin: 0 0 10px;
@@ -142,11 +144,10 @@
   color: #1a1206;
   background: linear-gradient(165deg, #ffd089 0%, #f4a742 48%, #c77d1f 100%);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset, 0 10px 32px rgba(244, 167, 66, 0.22);
-  transition: filter 0.12s ease, transform 0.12s ease;
+  transition: filter 0.12s ease;
 }
 .cp-cta:hover {
   filter: brightness(1.04);
-  transform: translateY(-1px);
 }
 .cp-note {
   margin: 8px 0 14px;
@@ -356,6 +357,7 @@
   margin: -4px 0 8px;
   font-size: 11px;
   color: #9aa4b8;
+  min-height: 16px;
 }
 .cp-hint-wrap {
   margin: 10px 0 0;
@@ -384,14 +386,13 @@
   border-color: rgba(143, 180, 255, 0.8);
   box-shadow: 0 0 0 2px rgba(143, 180, 255, 0.2);
 }
+.cp-muted[data-cp-preview-status] {
+  min-height: 18px;
+}
 .cp-card {
   margin: 0;
 }
 @keyframes cp-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes cp-pop {
   from { opacity: 0; }
   to { opacity: 1; }
 }
