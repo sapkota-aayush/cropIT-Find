@@ -683,10 +683,6 @@ function applyQuerySanityGuards(base) {
 
 function applyDestinationCriteria(base) {
   const q = String(base.productLookupQuery || "").toLowerCase();
-  const hasBrand = Boolean(String(base.brandHypothesis || "").trim());
-  const hasOfficialDomain = Boolean(String(base.officialBrandDomain || "").trim());
-  const commodityLike =
-    /\b(cable|charger|adapter|usb|sd card|memory card|generic|replacement|strap|band|case)\b/.test(q);
   const nonPhysical =
     /\b(software|saas|app|download|documentation|docs|guide|tutorial|api|plugin|extension)\b/.test(q);
   const hasProductSignal =
@@ -698,25 +694,14 @@ function applyDestinationCriteria(base) {
   if (hasProductSignal && !nonPhysical) {
     base.preferredDestination = "amazon";
     base.preferredStore = "amazon";
-  }
-
-  // If brand is explicit and official domain exists, prefer brand site only for non-commodity premium/direct-buy items.
-  if (hasBrand && hasOfficialDomain && !commodityLike && !/\b(amazon|prime)\b/.test(q)) {
-    base.preferredDestination = "brand_official";
-    base.preferredStore = "brand_official";
     return;
-  }
-
-  // If official domain is unavailable, never leave route as brand_official.
-  if (String(base.preferredDestination || "").toLowerCase() === "brand_official" && !hasOfficialDomain) {
-    base.preferredDestination = "google_shopping";
-    base.preferredStore = "google_shopping";
   }
 
   // Keep non-physical intents on web search paths.
   if (nonPhysical) {
     base.preferredDestination = "google";
     base.preferredStore = "google";
+    return;
   }
 }
 
@@ -1501,31 +1486,17 @@ async function handleScanResult(msg, tab) {
     const { amazonAssociateTag } = await chrome.storage.sync.get(["amazonAssociateTag"]);
     const tag = sanitizeAmazonAssociateTag(amazonAssociateTag);
     const resolveQuery = queryForListingResolve(base);
-    const destForResolve =
-      String(base.preferredDestination || base.preferredStore || "amazon")
-        .toLowerCase()
-        .replace(/[\s-]+/g, "_") || "amazon";
+    const destForResolve = "amazon";
     const skipPdpGuess = queryTooSpecificForRiskyAmazonPdpGuess(resolveQuery);
-    if (resolveQuery && !skipPdpGuess && (destForResolve === "amazon" || destForResolve === "google_shopping")) {
+    if (resolveQuery && !skipPdpGuess) {
       base.resolvedAmazonListingUrl = await tryResolveAmazonListingUrl(resolveQuery, tag);
     }
-    if (resolveQuery && destForResolve === "brand_official" && base.officialBrandDomain) {
-      base.resolvedOfficialProductUrl = await tryResolveOfficialProductUrl(base.officialBrandDomain, resolveQuery);
-      if (!base.resolvedOfficialProductUrl) {
-        base.resolvedOfficialError = "No direct official product page was resolved; using brand site search fallback.";
-      }
-    }
-    // If AI wanted Amazon but we cannot resolve a likely listing, fallback to less-friction discovery.
-    if (destForResolve === "amazon" && !base.resolvedAmazonListingUrl) {
-      if (base.officialBrandDomain) {
-        base.preferredDestination = "brand_official";
-        base.preferredStore = "brand_official";
-      } else {
-        base.preferredDestination = "google_shopping";
-        base.preferredStore = "google_shopping";
-      }
-      const note =
-        "Amazon match not confidently available, so fallback destination was selected automatically.";
+    // Keep Amazon-first behavior even when exact listing resolution fails.
+    // In that case, we still open Amazon search results instead of falling to Google.
+    base.preferredDestination = "amazon";
+    base.preferredStore = "amazon";
+    if (resolveQuery && !base.resolvedAmazonListingUrl) {
+      const note = "Exact Amazon listing not resolved; opening Amazon search results instead.";
       base.reasoningNote = base.reasoningNote ? `${base.reasoningNote} ${note}` : note;
     }
   } catch (e) {
