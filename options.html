@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Circle Product — Options</title>
+    <style>
+      body {
+        font: 14px system-ui, sans-serif;
+        max-width: 520px;
+        margin: 24px;
+      }
+      label {
+        display: block;
+        margin-top: 16px;
+        font-weight: 600;
+      }
+      input {
+        width: 100%;
+        margin-top: 6px;
+        padding: 8px;
+        box-sizing: border-box;
+      }
+      p.hint {
+        color: #64748b;
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      button {
+        margin-top: 16px;
+        padding: 8px 16px;
+      }
+      #status {
+        margin-top: 12px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Circle Product</h1>
+    <p>
+      Optional OpenAI key powers product naming and a tighter shopping query (gpt-4o-mini). Click the extension
+      icon or use a keyboard shortcut under
+      <strong>chrome://extensions/shortcuts</strong> (suggested: <strong>Alt+Shift+C</strong>). After you circle
+      something, the primary shopping URL opens in a new tab when the scan succeeds (no extra menus).
+    </p>
+    <label for="key">OpenAI API key</label>
+    <input id="key" type="password" autocomplete="off" placeholder="sk-..." />
+    <p class="hint">Stored in chrome.storage.sync. Rotate the key if it is ever exposed.</p>
+
+    <label for="tag">Amazon Associates store ID (optional)</label>
+    <input id="tag" type="text" autocomplete="off" placeholder="yoursite-20" />
+    <p class="hint">
+      If set, <strong>Amazon</strong> search links include <code>&amp;tag=…</code> so
+      qualifying purchases can credit your Associates account. Use your official tracking ID from Amazon
+      Associates. Other stores are unchanged.
+    </p>
+
+    <p class="hint">
+      Drawing only works on normal website tabs (https). Save here, then switch back to a product page — not this
+      Options tab.
+    </p>
+    <button id="save" type="button">Save</button>
+    <p id="status"></p>
+    <script src="options.js"></script>
+  </body>
+</html>
