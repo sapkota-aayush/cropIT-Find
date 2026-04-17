@@ -624,11 +624,56 @@ function sanitizeQueryBrandConflicts(query, brandHypothesis) {
   return q.replace(/\s+/g, " ").trim();
 }
 
+function sanitizeQueryStructure(query, brandHypothesis) {
+  let q = String(query || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return q;
+
+  // Keep routing concerns out of the user-facing/product query.
+  q = q.replace(/\bsite:[^\s]+/gi, " ").replace(/\s+/g, " ").trim();
+
+  const brand = String(brandHypothesis || "").trim();
+  if (brand) {
+    const esc = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`\\b${esc}\\b`, "ig");
+    const matches = [...q.matchAll(re)];
+    // Keep first brand mention, drop repeated copies.
+    if (matches.length > 1) {
+      const firstAt = matches[0].index ?? -1;
+      const firstEnd = firstAt + matches[0][0].length;
+      const before = q.slice(0, firstEnd);
+      const after = q
+        .slice(firstEnd)
+        .replace(re, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      q = `${before} ${after}`.replace(/\s+/g, " ").trim();
+    }
+  }
+
+  // Remove contradictory movement descriptors for watch queries.
+  const low = q.toLowerCase();
+  if (/\bpowermatic\b/.test(low)) {
+    // Powermatic is automatic movement family; "quartz" often causes zero-result queries.
+    q = q.replace(/\bquartz\b/gi, " ").replace(/\s+/g, " ").trim();
+  }
+  if (/\bautomatic\b/i.test(q) && /\bquartz\b/i.test(q)) {
+    q = q.replace(/\bquartz\b/gi, " ").replace(/\s+/g, " ").trim();
+  }
+
+  return q;
+}
+
 function applyQuerySanityGuards(base) {
+  base.productLookupQuery = sanitizeQueryStructure(base.productLookupQuery, base.brandHypothesis);
   base.productLookupQuery = sanitizeQueryBrandConflicts(base.productLookupQuery, base.brandHypothesis);
   if (Array.isArray(base.topQueries)) {
     base.topQueries = normalizeTopQueries(
-      base.topQueries.map((q) => sanitizeQueryBrandConflicts(q, base.brandHypothesis)),
+      base.topQueries.map((q) => {
+        const s = sanitizeQueryStructure(q, base.brandHypothesis);
+        return sanitizeQueryBrandConflicts(s, base.brandHypothesis);
+      }),
       base.productLookupQuery,
       base.label,
       base.keywords,
@@ -642,9 +687,21 @@ function applyDestinationCriteria(base) {
   const hasOfficialDomain = Boolean(String(base.officialBrandDomain || "").trim());
   const commodityLike =
     /\b(cable|charger|adapter|usb|sd card|memory card|generic|replacement|strap|band|case)\b/.test(q);
+  const nonPhysical =
+    /\b(software|saas|app|download|documentation|docs|guide|tutorial|api|plugin|extension)\b/.test(q);
+  const hasProductSignal =
+    Boolean(String(base.label || "").trim()) ||
+    (Array.isArray(base.keywords) && base.keywords.length > 0) ||
+    Boolean(String(base.ocrText || "").trim());
 
-  // If brand is explicit and official domain exists, prefer brand site search for exact product discovery.
-  if (hasBrand && hasOfficialDomain && !commodityLike) {
+  // Default for physical shopping intent: Amazon first.
+  if (hasProductSignal && !nonPhysical) {
+    base.preferredDestination = "amazon";
+    base.preferredStore = "amazon";
+  }
+
+  // If brand is explicit and official domain exists, prefer brand site only for non-commodity premium/direct-buy items.
+  if (hasBrand && hasOfficialDomain && !commodityLike && !/\b(amazon|prime)\b/.test(q)) {
     base.preferredDestination = "brand_official";
     base.preferredStore = "brand_official";
     return;
@@ -654,6 +711,12 @@ function applyDestinationCriteria(base) {
   if (String(base.preferredDestination || "").toLowerCase() === "brand_official" && !hasOfficialDomain) {
     base.preferredDestination = "google_shopping";
     base.preferredStore = "google_shopping";
+  }
+
+  // Keep non-physical intents on web search paths.
+  if (nonPhysical) {
+    base.preferredDestination = "google";
+    base.preferredStore = "google";
   }
 }
 
@@ -920,11 +983,158 @@ function looksLikeAsin(s) {
   return /^[A-Z0-9]{10}$/.test(s) && !/^(.)\1{9}$/.test(s);
 }
 
+function isLikelyOfficialProductUrl(candidateUrl, officialDomain) {
+  try {
+    const u = new URL(candidateUrl);
+    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
+    const dom = String(officialDomain || "")
+      .replace(/^www\./i, "")
+      .toLowerCase();
+    if (!host.endsWith(dom)) return false;
+    const p = u.pathname.toLowerCase();
+    if (!p || p === "/" || p === "/search" || p.startsWith("/search/")) return false;
+    if (/(\/store-locator|\/stores|\/contact|\/about|\/help|\/support|\/journal|\/news)/.test(p)) return false;
+    return /(\/product|\/products|\/watch|\/watches|\/item|\/catalog|\/shop|\/p\/|-[a-z0-9]{4,})/.test(p);
+  } catch {
+    return false;
+  }
+}
+
+function officialQueryTokens(productQuery, officialDomain) {
+  const stop = new Set([
+    "the",
+    "for",
+    "with",
+    "and",
+    "from",
+    "site",
+    "official",
+    "watch",
+    "watches",
+    "wallet",
+    "holder",
+    "card",
+  ]);
+  const brand = String(officialDomain || "")
+    .replace(/^www\./i, "")
+    .split(".")[0]
+    .toLowerCase();
+  return String(productQuery || "")
+    .toLowerCase()
+    .replace(/site:[^\s]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((t) => t.length >= 2)
+    .filter((t) => !stop.has(t))
+    .filter((t) => t !== brand)
+    .slice(0, 10);
+}
+
+function extractSiteOperatorDomainFromText(text) {
+  const s = String(text || "");
+  const m = s.match(/\bsite:([a-z0-9.-]+\.[a-z]{2,})\b/i);
+  if (!m || !m[1]) return null;
+  return sanitizeOfficialBrandDomain(m[1]);
+}
+
+function domainRoot(d) {
+  return String(d || "")
+    .replace(/^www\./i, "")
+    .split(".")[0]
+    .toLowerCase();
+}
+
+function harmonizeOfficialDomainFromHints(base) {
+  const fromQuery = extractSiteOperatorDomainFromText(base.productLookupQuery || "");
+  const fromHint = extractSiteOperatorDomainFromText(base.userHint || "");
+  const hinted = fromQuery || fromHint;
+  if (!hinted) return;
+  const current = String(base.officialBrandDomain || "").trim().toLowerCase();
+  if (!current) {
+    base.officialBrandDomain = hinted;
+    return;
+  }
+  // Allow ccTLD swap when same brand root (e.g. tissot.com -> tissot.ch).
+  if (domainRoot(current) && domainRoot(current) === domainRoot(hinted)) {
+    base.officialBrandDomain = hinted;
+  }
+}
+
+function scoreOfficialCandidateUrl(candidateUrl, tokens) {
+  try {
+    const u = new URL(candidateUrl);
+    const corpus = `${u.pathname} ${u.search}`.toLowerCase();
+    let score = 0;
+    for (const t of tokens) {
+      if (!t) continue;
+      if (corpus.includes(t)) score += t.length >= 4 ? 2 : 1;
+    }
+    // Favor SKU/model-like matches (digits often important in exact products).
+    if (/\d/.test(corpus) && tokens.some((t) => /\d/.test(t))) score += 2;
+    return score;
+  } catch {
+    return 0;
+  }
+}
+
+async function tryResolveOfficialProductUrl(officialDomain, productQuery) {
+  const d = String(officialDomain || "")
+    .trim()
+    .toLowerCase();
+  const q = String(productQuery || "").trim();
+  if (!d || !q) return null;
+  const searchQ = `${q} site:${d}`;
+  const url = `https://www.bing.com/search?q=${encodeURIComponent(searchQ)}`;
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent":
+          typeof navigator !== "undefined" && navigator.userAgent
+            ? navigator.userAgent
+            : "Mozilla/5.0 (compatible; CircleProduct/1.0)",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const hrefRe = /<a[^>]+href="([^"]+)"/gi;
+    const tokens = officialQueryTokens(productQuery, d);
+    let bestUrl = null;
+    let bestScore = -1;
+    let m;
+    while ((m = hrefRe.exec(html)) !== null) {
+      const raw = m[1];
+      if (!raw || raw.startsWith("#") || raw.startsWith("/")) continue;
+      const candidate = raw.replace(/&amp;/g, "&");
+      if (!isLikelyOfficialProductUrl(candidate, d)) continue;
+      const s = scoreOfficialCandidateUrl(candidate, tokens);
+      if (s > bestScore) {
+        bestScore = s;
+        bestUrl = candidate;
+      }
+    }
+    // Require at least a minimal token match so we don't open random official pages.
+    if (bestUrl && bestScore >= 1) return bestUrl;
+    // Fallback: if we only found plausible official product URLs, use the best one.
+    if (bestUrl) return bestUrl;
+    return null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
 /** Build query string used for Amazon search + optional PDP resolution. */
 function queryForListingResolve(base) {
-  const fromAi = (base.productLookupQuery && String(base.productLookupQuery).trim()) || "";
+  const fromAi = sanitizeQueryStructure((base.productLookupQuery && String(base.productLookupQuery).trim()) || "", base.brandHypothesis);
   if (fromAi) return fromAi;
-  const joined = [base.label, ...(base.keywords || [])].filter(Boolean).join(" ").trim();
+  const joined = sanitizeQueryStructure([base.label, ...(base.keywords || [])].filter(Boolean).join(" ").trim(), base.brandHypothesis);
   if (joined) return joined;
   if (base.pageTitle) return `${String(base.pageTitle).slice(0, 160)} product from page`;
   return "";
@@ -974,14 +1184,17 @@ function compactOfficialQuery(query) {
     "genuine",
     "premium",
   ]);
-  return String(query || "")
+  let out = String(query || "")
     .replace(/\s+/g, " ")
     .trim()
     .split(" ")
     .filter((w) => w && !stop.has(w.toLowerCase()))
-    .slice(0, 8)
+    .slice(0, 6)
     .join(" ")
     .trim();
+  // Safety re-pass in case compact query still contains contradictions.
+  out = sanitizeQueryStructure(out, null);
+  return out;
 }
 
 function buildBrandOfficialSearchUrl(domain, query) {
@@ -1010,6 +1223,7 @@ function buildDestinationUrlForScan(base, query, associateTag) {
     case "ebay":
       return `https://www.ebay.com/sch/i.html?_nkw=${enc}`;
     case "brand_official":
+      if (base.resolvedOfficialProductUrl) return base.resolvedOfficialProductUrl;
       if (!official) return `https://www.google.com/search?tbm=shop&q=${enc}`;
       return buildBrandOfficialSearchUrl(official, query);
     default:
@@ -1022,40 +1236,13 @@ function getPrimaryShoppingUrl(base, associateTag) {
   const q = queryForListingResolve(base);
   if (!q || String(q).trim().length < 2) return null;
   const dest = normalizeDestinationForUrl(base);
+  if (dest === "brand_official" && base.resolvedOfficialProductUrl) {
+    return base.resolvedOfficialProductUrl;
+  }
   const listingUrl = base.resolvedAmazonListingUrl || null;
   const useListing = Boolean(listingUrl) && (dest === "amazon" || dest === "google_shopping");
   if (useListing) return listingUrl;
   return buildDestinationUrlForScan(base, q, associateTag);
-}
-
-function buildMultiDestinationUrls(base, associateTag) {
-  const q = queryForListingResolve(base);
-  if (!q || String(q).trim().length < 2) return [];
-  const official = String(base.officialBrandDomain || "")
-    .trim()
-    .toLowerCase();
-  const primary = getPrimaryShoppingUrl(base, associateTag);
-  const amazon = (() => {
-    let u = `https://www.amazon.com/s?k=${encodeURIComponent(q)}`;
-    if (associateTag) u += `&tag=${encodeURIComponent(associateTag)}`;
-    return u;
-  })();
-  const shopping = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(q)}`;
-  const officialUrl = official ? buildBrandOfficialSearchUrl(official, q) : null;
-  const web = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
-
-  const out = [];
-  const pushUnique = (u) => {
-    const v = String(u || "").trim();
-    if (!v) return;
-    if (out.includes(v)) return;
-    out.push(v);
-  };
-  pushUnique(primary);
-  pushUnique(amazon);
-  pushUnique(officialUrl || shopping);
-  pushUnique(web);
-  return out.slice(0, 3);
 }
 
 /**
@@ -1138,12 +1325,10 @@ async function persistScanAndNotifyTab(tabId, base) {
   if (shortcutMatch && !base.error && !base.analysisError && !base.qualityWarning) {
     const { amazonAssociateTag } = await chrome.storage.sync.get(["amazonAssociateTag"]);
     const tag = sanitizeAmazonAssociateTag(amazonAssociateTag);
-    const urls = buildMultiDestinationUrls(base, tag);
-    if (urls.length) {
+    const url = getPrimaryShoppingUrl(base, tag);
+    if (url) {
       try {
-        for (let i = 0; i < urls.length; i++) {
-          await chrome.tabs.create({ url: urls[i], active: i === 0 });
-        }
+        await chrome.tabs.create({ url, active: true });
         await notifyContentPipelineDone(tabId, { autoOpened: true, overlayShown: false });
         return;
       } catch {
@@ -1177,7 +1362,9 @@ async function handleScanResult(msg, tab) {
     officialBrandDomain: null,
     analysisError: null,
     resolvedAmazonListingUrl: null,
+    resolvedOfficialProductUrl: null,
     resolvedListingError: null,
+    resolvedOfficialError: null,
     brandHypothesis: null,
     visualDiscriminators: [],
     topQueries: [],
@@ -1242,6 +1429,7 @@ async function handleScanResult(msg, tab) {
       pageUrl: msg.pageUrl || tab?.url || "",
     });
     applyQuerySanityGuards(base);
+    harmonizeOfficialDomainFromHints(base);
     applyDestinationCriteria(base);
   } catch (e) {
     base.analysisError = e?.message || String(e);
@@ -1295,6 +1483,7 @@ async function handleScanResult(msg, tab) {
         pageUrl: msg.pageUrl || tab?.url || "",
       });
       applyQuerySanityGuards(base);
+      harmonizeOfficialDomainFromHints(base);
       applyDestinationCriteria(base);
     } catch (e) {
       base.reasoningNote = e?.message || String(e);
@@ -1319,6 +1508,25 @@ async function handleScanResult(msg, tab) {
     const skipPdpGuess = queryTooSpecificForRiskyAmazonPdpGuess(resolveQuery);
     if (resolveQuery && !skipPdpGuess && (destForResolve === "amazon" || destForResolve === "google_shopping")) {
       base.resolvedAmazonListingUrl = await tryResolveAmazonListingUrl(resolveQuery, tag);
+    }
+    if (resolveQuery && destForResolve === "brand_official" && base.officialBrandDomain) {
+      base.resolvedOfficialProductUrl = await tryResolveOfficialProductUrl(base.officialBrandDomain, resolveQuery);
+      if (!base.resolvedOfficialProductUrl) {
+        base.resolvedOfficialError = "No direct official product page was resolved; using brand site search fallback.";
+      }
+    }
+    // If AI wanted Amazon but we cannot resolve a likely listing, fallback to less-friction discovery.
+    if (destForResolve === "amazon" && !base.resolvedAmazonListingUrl) {
+      if (base.officialBrandDomain) {
+        base.preferredDestination = "brand_official";
+        base.preferredStore = "brand_official";
+      } else {
+        base.preferredDestination = "google_shopping";
+        base.preferredStore = "google_shopping";
+      }
+      const note =
+        "Amazon match not confidently available, so fallback destination was selected automatically.";
+      base.reasoningNote = base.reasoningNote ? `${base.reasoningNote} ${note}` : note;
     }
   } catch (e) {
     base.resolvedListingError = e?.message || String(e);

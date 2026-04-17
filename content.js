@@ -168,28 +168,6 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.cp-dest-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-  margin: 10px 0 12px;
-}
-.cp-dest-btn {
-  display: block;
-  text-align: center;
-  text-decoration: none;
-  padding: 9px 8px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 650;
-  background: rgba(255, 255, 255, 0.06);
-  color: #d8e2f1;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-.cp-dest-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
 .cp-chip {
   font-size: 12px;
   font-weight: 600;
@@ -777,6 +755,22 @@
       const previewStatus = shell.querySelector("[data-cp-preview-status]");
       const userHintInput = shell.querySelector("[data-cp-user-hint]");
 
+      // Keep keystrokes inside modal inputs so underlying page hotkeys
+      // (e.g. video space-toggle) are not triggered while typing.
+      const stopTypingKeyLeak = (ev) => {
+        const t = ev.target;
+        const isTypingTarget =
+          t &&
+          (t.tagName === "TEXTAREA" ||
+            t.tagName === "INPUT" ||
+            t.isContentEditable ||
+            t.getAttribute?.("contenteditable") === "true");
+        if (isTypingTarget) {
+          ev.stopPropagation();
+        }
+      };
+      shell.addEventListener("keydown", stopTypingKeyLeak, true);
+
       const renderPreview = () => {
         box = clampSelectionBox(box, viewport);
         const cropped = cropDataFromImage(img, box, viewport);
@@ -905,6 +899,14 @@
     }
 
     function onKeyDown(ev) {
+      const t = ev.target;
+      const isTypingTarget =
+        t &&
+        (t.tagName === "TEXTAREA" ||
+          t.tagName === "INPUT" ||
+          t.isContentEditable ||
+          t.getAttribute?.("contenteditable") === "true");
+      if (isTypingTarget) return;
       if (ev.key === "Escape" && document.getElementById(FLOAT_HOST_ID)) {
         ev.preventDefault();
         removeFloatingPanel();

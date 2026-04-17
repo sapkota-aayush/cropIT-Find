@@ -28,6 +28,28 @@
     );
   }
 
+  function cleanDisplayQuery(query) {
+    let q = String(query || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!q) return q;
+    q = q.replace(/\bsite:[^\s]+/gi, " ").replace(/\s+/g, " ").trim();
+    // Avoid contradictory watch terms that over-constrain results.
+    if (/\bpowermatic\b/i.test(q)) {
+      q = q.replace(/\bquartz\b/gi, " ").replace(/\s+/g, " ").trim();
+    }
+    if (/\bautomatic\b/i.test(q) && /\bquartz\b/i.test(q)) {
+      q = q.replace(/\bquartz\b/gi, " ").replace(/\s+/g, " ").trim();
+    }
+    // Collapse repeated adjacent token groups (e.g. "TOM FORD ... TOM FORD").
+    q = q
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 14)
+      .join(" ");
+    return q;
+  }
+
   /** AI routing: amazon | google_shopping | ebay | google | brand_official */
   function normalizeDestination(scan) {
     const norm = (v) =>
@@ -122,6 +144,12 @@
   }
 
   function primaryCtaCopy(dest, useListing) {
+    if (dest === "brand_official" && !useListing) {
+      return {
+        label: "Search brand site",
+        note: "Using official brand discovery path. If exact product page is detected, it opens directly.",
+      };
+    }
     if (useListing) {
       return {
         label: "Open top Amazon listing",
@@ -164,16 +192,19 @@
       };
     })();
 
-    const productQuery =
+    const productQuery = cleanDisplayQuery(
       (scan.productLookupQuery && String(scan.productLookupQuery).trim()) ||
-      defaultProductQuery(scan.label, scan.keywords, scan.pageTitle);
+        defaultProductQuery(scan.label, scan.keywords, scan.pageTitle),
+    );
     const dest = normalizeDestination(scan);
     const officialDomain = (scan.officialBrandDomain && String(scan.officialBrandDomain).trim()) || "";
     const destUrl = buildDestinationUrl(dest, productQuery, officialDomain, amazonAssociateTag);
     const listingUrl = scan.resolvedAmazonListingUrl || null;
+    const officialResolvedUrl = scan.resolvedOfficialProductUrl || null;
     const useListingPrimary =
       Boolean(listingUrl) && (dest === "amazon" || dest === "google_shopping");
-    const primaryHref = useListingPrimary ? listingUrl : destUrl;
+    const useOfficialPrimary = Boolean(officialResolvedUrl) && dest === "brand_official";
+    const primaryHref = useOfficialPrimary ? officialResolvedUrl : useListingPrimary ? listingUrl : destUrl;
     const { label: primaryLabel, note: primaryNoteRaw } = primaryCtaCopy(dest, useListingPrimary);
 
     let html = "";
@@ -237,13 +268,6 @@
         officialDomain && String(officialDomain).trim()
           ? buildDestinationUrl("brand_official", productQuery, officialDomain, amazonAssociateTag)
           : null;
-      html += `<p class="cp-chips-label">Open with</p><div class="cp-dest-grid">`;
-      html += `<a class="cp-dest-btn" href="${amazonL}" target="_blank" rel="noreferrer">Amazon</a>`;
-      html += `<a class="cp-dest-btn" href="${officialL || shopL}" target="_blank" rel="noreferrer">${
-        officialL ? "Official site" : "Shopping"
-      }</a>`;
-      html += `<a class="cp-dest-btn" href="${webL}" target="_blank" rel="noreferrer">Google</a>`;
-      html += `</div>`;
       html += `<p class="cp-chips-label">Quick destinations</p><div class="cp-chips">`;
       html += `<a class="cp-chip" href="${amazonL}" target="_blank" rel="noreferrer">Amazon</a>`;
       html += `<a class="cp-chip" href="${shopL}" target="_blank" rel="noreferrer">Google Shopping</a>`;
@@ -275,6 +299,9 @@
       } else if (!listingUrl) {
         html += `<p class="cp-muted">No exact listing found yet. Try Amazon, Official site, and Google options above.</p>`;
       }
+      if (officialResolvedUrl && dest === "brand_official") {
+        html += `<p class="cp-muted"><a href="${escapeHtml(officialResolvedUrl)}" target="_blank" rel="noreferrer">Resolved official product page</a></p>`;
+      }
       if (dest === "brand_official" && officialDomain) {
         html += `<p class="cp-muted">Brand scope: <strong>${escapeHtml(officialDomain)}</strong></p>`;
       }
@@ -288,6 +315,10 @@
         scan.resolvedAmazonListingUrl
           ? `<div class="cp-muted"><a href="${escapeHtml(scan.resolvedAmazonListingUrl)}" target="_blank" rel="noreferrer">Resolved Amazon listing</a></div>`
           : "",
+        scan.resolvedOfficialProductUrl
+          ? `<div class="cp-muted"><a href="${escapeHtml(scan.resolvedOfficialProductUrl)}" target="_blank" rel="noreferrer">Resolved official page</a></div>`
+          : "",
+        scan.resolvedOfficialError ? `<div class="cp-muted">${escapeHtml(scan.resolvedOfficialError)}</div>` : "",
       ]
         .filter(Boolean)
         .join("");
