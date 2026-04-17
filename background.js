@@ -223,13 +223,20 @@ async function analyzeCrop(cropDataUrl, pageContext) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 500);
+  const userHint = String(pageContext?.userHint || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
   const contextBlock =
     title || url
       ? `Page context (use to disambiguate the circled item — e.g. video title naming a gadget, collab merch, or review unit):\n- title: ${title || "(none)"}\n- url: ${url || "(none)"}\n\n`
       : "";
   const ocrBlock = ocrText ? `OCR text from crop (high priority if clear):\n- ${ocrText}\n\n` : "";
+  const userHintBlock = userHint
+    ? `User optional description (high-priority hint):\n- ${userHint}\nTreat this seriously and incorporate it unless it directly conflicts with clear OCR/visual evidence.\n\n`
+    : "";
 
-  const instructions = `${contextBlock}${ocrBlock}The user drew a loop around something in a web page screenshot. This extension exists to help them **buy or identify the exact product** (affiliate-style shopping search — we only open search URLs we build, never invented product pages).
+  const instructions = `${contextBlock}${ocrBlock}${userHintBlock}The user drew a loop around something in a web page screenshot. This extension exists to help them **buy or identify the exact product** (affiliate-style shopping search — we only open search URLs we build, never invented product pages).
 
 Your job: identify what they circled as a **product or shoppable item** when possible. **Brand-level specificity matters:** many categories (guitars, watches, sneakers, bikes, power tools, cameras) look alike until a brand + line is named — generic searches ("acoustic guitar") are a failure mode.
 
@@ -483,6 +490,63 @@ function enforceBrandFirstQuery(base, hints) {
   );
 }
 
+function extractHintHints(userHint) {
+  return extractOcrHints(userHint || "");
+}
+
+function looksLikeSameBrand(a, b) {
+  const aa = String(a || "")
+    .toLowerCase()
+    .trim();
+  const bb = String(b || "")
+    .toLowerCase()
+    .trim();
+  if (!aa || !bb) return false;
+  if (aa === bb) return true;
+  const a0 = aa.split(/\s+/)[0];
+  const b0 = bb.split(/\s+/)[0];
+  return Boolean(a0 && b0 && (a0 === b0 || aa.includes(b0) || bb.includes(a0)));
+}
+
+function blendUserHintAfterVision(base, pageContext) {
+  const hint = extractHintHints(base.userHint);
+  const hintBrand = String(hint?.brand || "").trim();
+  const hintProduct = String(hint?.productType || "").trim();
+  if (!hintBrand && !hintProduct) return;
+
+  let used = false;
+  let q = String(base.productLookupQuery || "").trim();
+
+  if (hintBrand) {
+    const currentBrand = String(base.brandHypothesis || "").trim();
+    const weakSignals = isLowSignalScan(base);
+    const corroborated = hasBrandEvidence(hintBrand, pageContext);
+    const compatible = !currentBrand || looksLikeSameBrand(currentBrand, hintBrand);
+    // User-provided hints are high-priority: adopt unless strongly incompatible.
+    if (compatible || weakSignals || corroborated) {
+      base.brandHypothesis = hintBrand;
+      if (!q.toLowerCase().includes(hintBrand.toLowerCase())) {
+        q = `${hintBrand} ${q}`.trim();
+      }
+      used = true;
+    }
+  }
+
+  if (hintProduct) {
+    if (q && !q.toLowerCase().includes(hintProduct.toLowerCase())) {
+      q = `${q} ${hintProduct}`.trim();
+      used = true;
+    }
+  }
+  if (q) base.productLookupQuery = q.slice(0, 320);
+
+  if (used) {
+    base.topQueries = normalizeTopQueries(base.topQueries, base.productLookupQuery, base.label, base.keywords);
+    const note = "Applied optional user hint with high priority.";
+    base.reasoningNote = base.reasoningNote ? `${base.reasoningNote} ${note}` : note;
+  }
+}
+
 function hasBrandEvidence(brand, pageContext) {
   const b = String(brand || "").trim();
   if (!b) return false;
@@ -572,6 +636,27 @@ function applyQuerySanityGuards(base) {
   }
 }
 
+function applyDestinationCriteria(base) {
+  const q = String(base.productLookupQuery || "").toLowerCase();
+  const hasBrand = Boolean(String(base.brandHypothesis || "").trim());
+  const hasOfficialDomain = Boolean(String(base.officialBrandDomain || "").trim());
+  const commodityLike =
+    /\b(cable|charger|adapter|usb|sd card|memory card|generic|replacement|strap|band|case)\b/.test(q);
+
+  // If brand is explicit and official domain exists, prefer brand site search for exact product discovery.
+  if (hasBrand && hasOfficialDomain && !commodityLike) {
+    base.preferredDestination = "brand_official";
+    base.preferredStore = "brand_official";
+    return;
+  }
+
+  // If official domain is unavailable, never leave route as brand_official.
+  if (String(base.preferredDestination || "").toLowerCase() === "brand_official" && !hasOfficialDomain) {
+    base.preferredDestination = "google_shopping";
+    base.preferredStore = "google_shopping";
+  }
+}
+
 function isLowSignalScan(base) {
   const ocrLen = String(base.ocrText || "").trim().length;
   const labelLen = String(base.label || "").trim().length;
@@ -646,6 +731,10 @@ async function recoverQueriesWithReasoning(cropDataUrl, pageContext, base) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 300);
+  const userHint = String(pageContext?.userHint || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
   const title = String(pageContext?.pageTitle || "").slice(0, 200);
   const seed = [base.brandHypothesis, ...(base.visualDiscriminators || [])]
     .filter(Boolean)
@@ -658,6 +747,7 @@ Given the crop image and weak signals, generate practical search queries.
 Context:
 - page_title: ${title || "(none)"}
 - ocr_text: ${ocrText || "(none)"}
+- user_hint: ${userHint || "(none)"}
 - visual_hints: ${seed || "(none)"}
 
 Return JSON only:
@@ -854,6 +944,55 @@ function normalizeDestinationForUrl(base) {
   return "amazon";
 }
 
+function stripSiteOperator(query, domain) {
+  const d = String(domain || "")
+    .trim()
+    .toLowerCase();
+  let q = String(query || "").trim();
+  if (!q) return q;
+  if (d) {
+    const re = new RegExp(`\\s*site:${d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "ig");
+    q = q.replace(re, " ");
+  }
+  q = q.replace(/\s+/g, " ").trim();
+  return q;
+}
+
+function compactOfficialQuery(query) {
+  const stop = new Set([
+    "dark",
+    "light",
+    "brown",
+    "black",
+    "white",
+    "blue",
+    "red",
+    "small",
+    "large",
+    "textured",
+    "folded",
+    "genuine",
+    "premium",
+  ]);
+  return String(query || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => w && !stop.has(w.toLowerCase()))
+    .slice(0, 8)
+    .join(" ")
+    .trim();
+}
+
+function buildBrandOfficialSearchUrl(domain, query) {
+  const d = String(domain || "")
+    .trim()
+    .toLowerCase();
+  const cleanQ = compactOfficialQuery(stripSiteOperator(query, d) || query || "");
+  if (!d) return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(cleanQ)}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(`${cleanQ} site:${d}`)}`;
+}
+
 function buildDestinationUrlForScan(base, query, associateTag) {
   const dest = normalizeDestinationForUrl(base);
   const enc = encodeURIComponent(query);
@@ -872,7 +1011,7 @@ function buildDestinationUrlForScan(base, query, associateTag) {
       return `https://www.ebay.com/sch/i.html?_nkw=${enc}`;
     case "brand_official":
       if (!official) return `https://www.google.com/search?tbm=shop&q=${enc}`;
-      return `https://www.google.com/search?q=${encodeURIComponent(`${query} site:${official}`)}`;
+      return buildBrandOfficialSearchUrl(official, query);
     default:
       return `https://www.google.com/search?q=${enc}`;
   }
@@ -887,6 +1026,36 @@ function getPrimaryShoppingUrl(base, associateTag) {
   const useListing = Boolean(listingUrl) && (dest === "amazon" || dest === "google_shopping");
   if (useListing) return listingUrl;
   return buildDestinationUrlForScan(base, q, associateTag);
+}
+
+function buildMultiDestinationUrls(base, associateTag) {
+  const q = queryForListingResolve(base);
+  if (!q || String(q).trim().length < 2) return [];
+  const official = String(base.officialBrandDomain || "")
+    .trim()
+    .toLowerCase();
+  const primary = getPrimaryShoppingUrl(base, associateTag);
+  const amazon = (() => {
+    let u = `https://www.amazon.com/s?k=${encodeURIComponent(q)}`;
+    if (associateTag) u += `&tag=${encodeURIComponent(associateTag)}`;
+    return u;
+  })();
+  const shopping = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(q)}`;
+  const officialUrl = official ? buildBrandOfficialSearchUrl(official, q) : null;
+  const web = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+
+  const out = [];
+  const pushUnique = (u) => {
+    const v = String(u || "").trim();
+    if (!v) return;
+    if (out.includes(v)) return;
+    out.push(v);
+  };
+  pushUnique(primary);
+  pushUnique(amazon);
+  pushUnique(officialUrl || shopping);
+  pushUnique(web);
+  return out.slice(0, 3);
 }
 
 /**
@@ -969,10 +1138,12 @@ async function persistScanAndNotifyTab(tabId, base) {
   if (shortcutMatch && !base.error && !base.analysisError && !base.qualityWarning) {
     const { amazonAssociateTag } = await chrome.storage.sync.get(["amazonAssociateTag"]);
     const tag = sanitizeAmazonAssociateTag(amazonAssociateTag);
-    const url = getPrimaryShoppingUrl(base, tag);
-    if (url) {
+    const urls = buildMultiDestinationUrls(base, tag);
+    if (urls.length) {
       try {
-        await chrome.tabs.create({ url, active: true });
+        for (let i = 0; i < urls.length; i++) {
+          await chrome.tabs.create({ url: urls[i], active: i === 0 });
+        }
         await notifyContentPipelineDone(tabId, { autoOpened: true, overlayShown: false });
         return;
       } catch {
@@ -1011,6 +1182,7 @@ async function handleScanResult(msg, tab) {
     visualDiscriminators: [],
     topQueries: [],
     ocrText: null,
+    userHint: null,
     ocrHints: null,
     ocrError: null,
     reasoningAssistUsed: false,
@@ -1035,12 +1207,17 @@ async function handleScanResult(msg, tab) {
   } catch (e) {
     base.ocrError = e?.message || String(e);
   }
+  base.userHint = String(msg.userHint || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
 
   try {
     const ai = await analyzeCrop(msg.cropDataUrl, {
       pageTitle: msg.pageTitle,
       pageUrl: msg.pageUrl || tab?.url,
       ocrText: base.ocrText,
+      userHint: base.userHint,
     });
     base.label = ai.label;
     base.keywords = ai.keywords;
@@ -1059,7 +1236,13 @@ async function handleScanResult(msg, tab) {
       pageUrl: msg.pageUrl || tab?.url || "",
     });
     enforceBrandFirstQuery(base, base.ocrHints);
+    blendUserHintAfterVision(base, {
+      ocrText: base.ocrText,
+      pageTitle: msg.pageTitle || tab?.title || "",
+      pageUrl: msg.pageUrl || tab?.url || "",
+    });
     applyQuerySanityGuards(base);
+    applyDestinationCriteria(base);
   } catch (e) {
     base.analysisError = e?.message || String(e);
   }
@@ -1083,6 +1266,7 @@ async function handleScanResult(msg, tab) {
         {
           pageTitle: msg.pageTitle || tab?.title || "",
           ocrText: base.ocrText || "",
+          userHint: base.userHint || "",
         },
         base,
       );
@@ -1105,7 +1289,13 @@ async function handleScanResult(msg, tab) {
         pageUrl: msg.pageUrl || tab?.url || "",
       });
       enforceBrandFirstQuery(base, base.ocrHints);
+      blendUserHintAfterVision(base, {
+        ocrText: base.ocrText,
+        pageTitle: msg.pageTitle || tab?.title || "",
+        pageUrl: msg.pageUrl || tab?.url || "",
+      });
       applyQuerySanityGuards(base);
+      applyDestinationCriteria(base);
     } catch (e) {
       base.reasoningNote = e?.message || String(e);
     }

@@ -43,9 +43,54 @@
     return "amazon";
   }
 
+  function stripSiteOperator(query, domain) {
+    const d = String(domain || "")
+      .trim()
+      .toLowerCase();
+    let q = String(query || "").trim();
+    if (!q) return q;
+    if (d) {
+      const re = new RegExp(`\\s*site:${d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "ig");
+      q = q.replace(re, " ");
+    }
+    q = q.replace(/\s+/g, " ").trim();
+    return q;
+  }
+
+  function compactOfficialQuery(query) {
+    const stop = new Set([
+      "dark",
+      "light",
+      "brown",
+      "black",
+      "white",
+      "blue",
+      "red",
+      "small",
+      "large",
+      "textured",
+      "folded",
+      "genuine",
+      "premium",
+    ]);
+    return String(query || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter((w) => w && !stop.has(w.toLowerCase()))
+      .slice(0, 8)
+      .join(" ")
+      .trim();
+  }
+
   function buildBrandOfficialSearchUrl(domain, query) {
-    const q = `${query} site:${domain}`;
-    return `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+    const d = String(domain || "")
+      .trim()
+      .toLowerCase();
+    const q = compactOfficialQuery(stripSiteOperator(query, d) || query || "");
+    if (!d) return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(q)}`;
+    // Safer across brand sites: keep query constrained to official domain via web search.
+    return `https://www.google.com/search?q=${encodeURIComponent(`${q} site:${d}`)}`;
   }
 
   function buildDestinationUrl(dest, query, officialDomain, amazonAssociateTag) {
@@ -188,6 +233,26 @@
       }
       html += `<a class="cp-cta" href="${primaryHref}" target="_blank" rel="noreferrer">${escapeHtml(primaryLabel)}</a>`;
       html += `<p class="cp-note">${escapeHtml(primaryNoteRaw)}</p>`;
+      const officialL =
+        officialDomain && String(officialDomain).trim()
+          ? buildDestinationUrl("brand_official", productQuery, officialDomain, amazonAssociateTag)
+          : null;
+      html += `<p class="cp-chips-label">Open with</p><div class="cp-dest-grid">`;
+      html += `<a class="cp-dest-btn" href="${amazonL}" target="_blank" rel="noreferrer">Amazon</a>`;
+      html += `<a class="cp-dest-btn" href="${officialL || shopL}" target="_blank" rel="noreferrer">${
+        officialL ? "Official site" : "Shopping"
+      }</a>`;
+      html += `<a class="cp-dest-btn" href="${webL}" target="_blank" rel="noreferrer">Google</a>`;
+      html += `</div>`;
+      html += `<p class="cp-chips-label">Quick destinations</p><div class="cp-chips">`;
+      html += `<a class="cp-chip" href="${amazonL}" target="_blank" rel="noreferrer">Amazon</a>`;
+      html += `<a class="cp-chip" href="${shopL}" target="_blank" rel="noreferrer">Google Shopping</a>`;
+      if (officialDomain) {
+        const brandL = buildDestinationUrl("brand_official", productQuery, officialDomain, amazonAssociateTag);
+        html += `<a class="cp-chip" href="${brandL}" target="_blank" rel="noreferrer">Official brand</a>`;
+      }
+      html += `<a class="cp-chip" href="${webL}" target="_blank" rel="noreferrer">Web</a>`;
+      html += `</div>`;
       if (topQueries.length > 1) {
         html += `<p class="cp-chips-label">More query options</p><div class="cp-chips">`;
         for (const q of topQueries.slice(1, 4)) {
@@ -207,6 +272,8 @@
       html += `</p>`;
       if (listingUrl && !useListingPrimary && (dest === "amazon" || dest === "google_shopping")) {
         html += `<p class="cp-muted"><a href="${escapeHtml(listingUrl)}" target="_blank" rel="noreferrer">Amazon top listing (guess)</a></p>`;
+      } else if (!listingUrl) {
+        html += `<p class="cp-muted">No exact listing found yet. Try Amazon, Official site, and Google options above.</p>`;
       }
       if (dest === "brand_official" && officialDomain) {
         html += `<p class="cp-muted">Brand scope: <strong>${escapeHtml(officialDomain)}</strong></p>`;
@@ -216,6 +283,7 @@
         scan.label ? `<div>${escapeHtml(scan.label)}</div>` : "",
         kwLine ? `<div class="cp-muted">${escapeHtml(kwLine)}</div>` : "",
         scan.ocrText ? `<div class="cp-muted">OCR: ${escapeHtml(scan.ocrText)}</div>` : "",
+        scan.userHint ? `<div class="cp-muted">Your hint: ${escapeHtml(scan.userHint)}</div>` : "",
         scan.reasoningNote ? `<div class="cp-muted">Reasoning: ${escapeHtml(scan.reasoningNote)}</div>` : "",
         scan.resolvedAmazonListingUrl
           ? `<div class="cp-muted"><a href="${escapeHtml(scan.resolvedAmazonListingUrl)}" target="_blank" rel="noreferrer">Resolved Amazon listing</a></div>`

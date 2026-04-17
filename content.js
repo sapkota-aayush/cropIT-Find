@@ -36,9 +36,9 @@
 .cp-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(4, 6, 12, 0.55);
-  backdrop-filter: blur(12px);
-  animation: cp-fade 0.22s ease-out;
+  background: rgba(4, 6, 12, 0.48);
+  backdrop-filter: blur(8px);
+  animation: cp-fade 0.16s linear;
 }
 .cp-modal {
   position: absolute;
@@ -49,14 +49,15 @@
   max-height: min(86vh, 720px);
   display: flex;
   flex-direction: column;
-  background: linear-gradient(160deg, rgba(30, 36, 52, 0.97) 0%, rgba(12, 14, 22, 0.98) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(120% 100% at 0% 0%, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 45%),
+    linear-gradient(160deg, rgba(26, 31, 45, 0.9) 0%, rgba(10, 12, 20, 0.88) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   box-shadow:
-    0 0 0 1px rgba(255, 200, 120, 0.12),
-    0 24px 80px rgba(0, 0, 0, 0.55),
-    0 0 60px rgba(244, 167, 66, 0.08);
-  animation: cp-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 18px 48px rgba(0, 0, 0, 0.45);
+  animation: cp-pop 0.16s linear;
   overflow: hidden;
 }
 .cp-close {
@@ -166,6 +167,28 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.cp-dest-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+.cp-dest-btn {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  padding: 9px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  background: rgba(255, 255, 255, 0.06);
+  color: #d8e2f1;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.cp-dest-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
 .cp-chip {
   font-size: 12px;
   font-weight: 600;
@@ -270,20 +293,31 @@
 .cp-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 8px;
-  padding: 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 .cp-btn-icon {
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   font-weight: 700;
 }
+.cp-btn-circle {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .cp-btn-soft {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 .cp-btn-label {
   display: block;
@@ -291,10 +325,64 @@
   font-size: 10px;
   color: #b7c0d3;
 }
+.cp-size-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cp-size-row .cp-btn {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+.cp-inline-row {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+.cp-link-btn {
+  background: transparent;
+  border: none;
+  color: #9fb6df;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.cp-link-btn:hover {
+  color: #bfd2f2;
+}
 .cp-preview-meta {
   margin: -4px 0 8px;
   font-size: 11px;
   color: #9aa4b8;
+}
+.cp-hint-wrap {
+  margin: 10px 0 0;
+}
+.cp-hint-label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 650;
+  color: #c9d2e3;
+}
+.cp-hint-input {
+  width: 100%;
+  min-height: 62px;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 10, 18, 0.55);
+  color: #eef2f9;
+  padding: 9px 10px;
+  box-sizing: border-box;
+  font: inherit;
+}
+.cp-hint-input:focus {
+  outline: none;
+  border-color: rgba(143, 180, 255, 0.8);
+  box-shadow: 0 0 0 2px rgba(143, 180, 255, 0.2);
 }
 .cp-card {
   margin: 0;
@@ -304,8 +392,8 @@
   to { opacity: 1; }
 }
 @keyframes cp-pop {
-  from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
-  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 `;
 
@@ -331,7 +419,7 @@
       el.id = PIPELINE_LOADING_ID;
       el.setAttribute("data-cp-loading", "");
       el.innerHTML =
-        '<div class="cp-load-track"><div class="cp-load-bar"></div></div><p class="cp-load-label">Finding your product…</p>';
+        '<div class="cp-load-shell"><div class="cp-load-orb"></div><div class="cp-load-track"><div class="cp-load-bar"></div></div><p class="cp-load-label">Finding your product</p><div class="cp-load-dots"><span></span><span></span><span></span></div></div>';
       document.documentElement.appendChild(el);
       setTimeout(() => {
         if (document.getElementById(PIPELINE_LOADING_ID)) removePipelineLoading();
@@ -648,13 +736,30 @@
             <p class="cp-preview-meta" data-cp-preview-meta></p>
             <img class="cp-preview" data-cp-preview-image alt="Selection preview" />
             <p class="cp-muted" data-cp-preview-status></p>
+            <div class="cp-hint-wrap">
+              <label class="cp-hint-label" for="cp-user-hint">Optional description (helps when image is unclear)</label>
+              <textarea
+                id="cp-user-hint"
+                class="cp-hint-input"
+                data-cp-user-hint
+                maxlength="220"
+                placeholder="e.g. brand might be Zeiss, looks like lens cleaning wipes"
+              ></textarea>
+            </div>
             <div class="cp-grid">
-              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="up" aria-label="Move up"><span class="cp-btn-icon">↑</span></button>
-              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="expand" aria-label="Expand"><span class="cp-btn-icon">⤢</span><span class="cp-btn-label">Expand</span></button>
-              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="down" aria-label="Move down"><span class="cp-btn-icon">↓</span></button>
-              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="left" aria-label="Move left"><span class="cp-btn-icon">←</span></button>
-              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="shrink" aria-label="Shrink"><span class="cp-btn-icon">⤡</span><span class="cp-btn-label">Shrink</span></button>
-              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="right" aria-label="Move right"><span class="cp-btn-icon">→</span></button>
+              <button type="button" class="cp-btn cp-btn-soft cp-btn-circle" data-cp-adjust="up" aria-label="Move up"><span class="cp-btn-icon">↑</span></button>
+              <div class="cp-muted" style="text-align:center; align-self:center;">Move crop</div>
+              <button type="button" class="cp-btn cp-btn-soft cp-btn-circle" data-cp-adjust="down" aria-label="Move down"><span class="cp-btn-icon">↓</span></button>
+              <button type="button" class="cp-btn cp-btn-soft cp-btn-circle" data-cp-adjust="left" aria-label="Move left"><span class="cp-btn-icon">←</span></button>
+              <div class="cp-muted" style="text-align:center; align-self:center;">Nudge</div>
+              <button type="button" class="cp-btn cp-btn-soft cp-btn-circle" data-cp-adjust="right" aria-label="Move right"><span class="cp-btn-icon">→</span></button>
+            </div>
+            <div class="cp-size-row">
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-scale="grow">Grow selection</button>
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-scale="tighten">Tighten selection</button>
+            </div>
+            <div class="cp-inline-row">
+              <button type="button" class="cp-link-btn" data-cp-open-options>Use your own API key</button>
             </div>
             <div class="cp-actions">
               <button type="button" class="cp-btn" data-cp-redraw>Redraw</button>
@@ -669,6 +774,7 @@
       const previewImage = shell.querySelector("[data-cp-preview-image]");
       const previewMeta = shell.querySelector("[data-cp-preview-meta]");
       const previewStatus = shell.querySelector("[data-cp-preview-status]");
+      const userHintInput = shell.querySelector("[data-cp-user-hint]");
 
       const renderPreview = () => {
         box = clampSelectionBox(box, viewport);
@@ -695,23 +801,37 @@
         closePreview();
         startSelection();
       });
+      shell.querySelector("[data-cp-open-options]")?.addEventListener("click", () => {
+        try {
+          chrome.runtime.openOptionsPage();
+        } catch {
+          /* ignore */
+        }
+      });
 
       shell.querySelectorAll("[data-cp-adjust]").forEach((btn) => {
         btn.addEventListener("click", () => {
           const op = btn.getAttribute("data-cp-adjust");
           const move = Math.max(6, Math.round(Math.max(box.w, box.h) * 0.08));
-          const size = Math.max(8, Math.round(Math.max(box.w, box.h) * 0.1));
           if (op === "up") box.y -= move;
           if (op === "down") box.y += move;
           if (op === "left") box.x -= move;
           if (op === "right") box.x += move;
-          if (op === "expand") {
+          lastCropped = renderPreview();
+        });
+      });
+
+      shell.querySelectorAll("[data-cp-scale]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const op = btn.getAttribute("data-cp-scale");
+          const size = Math.max(8, Math.round(Math.max(box.w, box.h) * 0.1));
+          if (op === "grow") {
             box.x -= size;
             box.y -= size;
             box.w += size * 2;
             box.h += size * 2;
           }
-          if (op === "shrink") {
+          if (op === "tighten") {
             box.x += size;
             box.y += size;
             box.w = Math.max(16, box.w - size * 2);
@@ -724,6 +844,10 @@
       shell.querySelector("[data-cp-search]")?.addEventListener("click", async () => {
         lastCropped = renderPreview();
         if (lastCropped.tooSmall) return;
+        const userHint = String(userHintInput?.value || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 220);
         closePreview();
         showPipelineLoading();
         await chrome.runtime.sendMessage({
@@ -733,6 +857,7 @@
           bboxCss: box,
           pageUrl: pageMeta.pageUrl,
           pageTitle: pageMeta.pageTitle,
+          userHint,
         });
       });
     }

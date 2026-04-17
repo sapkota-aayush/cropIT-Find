@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Circle Product",
-  "version": "0.3.17",
+  "version": "0.3.29",
   "description": "Click or shortcut, circle a product; opens the shopping link in a new tab.",
   "permissions": ["activeTab", "tabs", "storage", "scripting"],
   "host_permissions": ["<all_urls>"],
