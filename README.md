@@ -2,6 +2,22 @@
 
 Circle Product is a Chrome Extension (Manifest V3) that lets you circle any product on a webpage, captures that area, identifies a useful product query, and opens a shopping search page in a new tab.
 
+## Quick Start
+
+1. Open Chrome and go to `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked** and choose this repository folder.
+4. (Optional) Open extension options and set:
+   - OpenAI API key for OCR + AI query generation
+   - Amazon Associates tag for affiliate links
+5. Visit a product page, then click extension icon or use `Alt+Shift+C`.
+
+## Public Project Docs
+
+- License: `LICENSE`
+- Privacy: `PRIVACY.md`
+- Security reporting: `SECURITY.md`
+
 ## 1) What This Project Does
 
 - Starts from extension icon click or keyboard shortcut (`Alt+Shift+C`).
@@ -100,6 +116,9 @@ Use normal website tabs (`https://...`) for expected behavior.
 
 - **Wrong or weak product query**  
   Add/update OpenAI key in options and retest with a cleaner, tighter selection.
+
+- **No visible brand/logo in product**  
+  The extension now prefers descriptive non-brand queries instead of forcing a guessed brand.
 
 - **Affiliate tag not applied**  
   Verify tag format and ensure destination route is Amazon.
