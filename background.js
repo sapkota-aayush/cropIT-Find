@@ -375,6 +375,114 @@ function normalizeTopQueries(rawTopQueries, primary, label, keywords) {
   return all.slice(0, 3);
 }
 
+function extractOcrHints(ocrText) {
+  const text = String(ocrText || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return { brand: null, productType: null };
+
+  const lower = text.toLowerCase();
+  const productPatterns = [
+    "lens wipe",
+    "lens wipes",
+    "wipe",
+    "wipes",
+    "wireless earbuds",
+    "earbuds",
+    "headphones",
+    "earphones",
+    "serum",
+    "cream",
+    "lamp",
+    "clock",
+    "charger",
+    "cable",
+    "watch",
+    "sneakers",
+  ];
+  let productType = null;
+  for (const p of productPatterns) {
+    if (lower.includes(p)) {
+      productType = p;
+      break;
+    }
+  }
+
+  const skip = new Set([
+    "lens",
+    "wipe",
+    "wipes",
+    "gentle",
+    "thorough",
+    "cleaning",
+    "wireless",
+    "with",
+    "for",
+    "and",
+    "the",
+    "pack",
+    "pcs",
+    "piece",
+  ]);
+  const words = text.match(/[A-Za-z][A-Za-z0-9-]{2,}/g) || [];
+  let brand = null;
+  for (const w of words) {
+    const wl = w.toLowerCase();
+    const looksBrandy = /^[A-Z0-9-]{3,}$/.test(w) || /^[A-Z][a-z]+(?:[A-Z][a-z]+)?$/.test(w);
+    if (!looksBrandy) continue;
+    if (skip.has(wl)) continue;
+    brand = w;
+    break;
+  }
+
+  return {
+    brand: brand ? brand.trim() : null,
+    productType: productType ? productType.trim() : null,
+  };
+}
+
+function enforceBrandFirstQuery(base, hints) {
+  const brand = String(hints?.brand || "").trim();
+  const productType = String(hints?.productType || "").trim();
+  if (!brand && !productType) return;
+
+  const query = String(base.productLookupQuery || "").replace(/\s+/g, " ").trim();
+  let next = query;
+
+  if (brand) {
+    const b0 = brand.split(/\s+/)[0].toLowerCase();
+    const hasBrandInQuery = b0 && query.toLowerCase().includes(b0);
+    if (!hasBrandInQuery) {
+      next = `${brand} ${query}`.trim();
+    }
+    if (!base.brandHypothesis) {
+      base.brandHypothesis = brand;
+    }
+  }
+
+  if (productType) {
+    const hasType = next.toLowerCase().includes(productType.toLowerCase());
+    if (!hasType) {
+      next = `${next} ${productType}`.trim();
+    }
+  }
+
+  if (next) {
+    base.productLookupQuery = next.slice(0, 320);
+  }
+  base.topQueries = normalizeTopQueries(
+    [
+      base.productLookupQuery,
+      brand && productType ? `${brand} ${productType}` : null,
+      brand ? `${brand} ${String(base.label || "").trim()}` : null,
+      ...(base.topQueries || []),
+    ].filter(Boolean),
+    base.productLookupQuery,
+    base.label,
+    base.keywords,
+  );
+}
+
 function hasBrandEvidence(brand, pageContext) {
   const b = String(brand || "").trim();
   if (!b) return false;
@@ -428,6 +536,42 @@ function applyBrandEvidenceGuard(base, pageContext) {
   base.reasoningNote = base.reasoningNote ? `${base.reasoningNote} ${note}` : note;
 }
 
+function sanitizeQueryBrandConflicts(query, brandHypothesis) {
+  let q = String(query || "").replace(/\s+/g, " ").trim();
+  if (!q) return q;
+  const bh = String(brandHypothesis || "").toLowerCase();
+  const hasAirpods = /\bairpods?\b/i.test(q);
+  const hasSamsung = /\bsamsung\b/i.test(q);
+  const hasApple = /\bapple\b/i.test(q);
+  const hasBeats = /\bbeats\b/i.test(q);
+
+  // "AirPods" is Apple-only branding; avoid mismatched brand mixes.
+  if (hasAirpods && bh && bh !== "apple" && bh !== "beats") {
+    q = q.replace(/\bairpods?\b/gi, "wireless earbuds");
+  }
+  if (hasAirpods && hasSamsung) {
+    q = q.replace(/\bairpods?\b/gi, "wireless earbuds");
+  }
+  if (bh === "beats" && hasApple && !hasBeats) {
+    q = q.replace(/\bapple\b/gi, "").replace(/\s+/g, " ").trim();
+    q = `Beats ${q}`.trim();
+  }
+
+  return q.replace(/\s+/g, " ").trim();
+}
+
+function applyQuerySanityGuards(base) {
+  base.productLookupQuery = sanitizeQueryBrandConflicts(base.productLookupQuery, base.brandHypothesis);
+  if (Array.isArray(base.topQueries)) {
+    base.topQueries = normalizeTopQueries(
+      base.topQueries.map((q) => sanitizeQueryBrandConflicts(q, base.brandHypothesis)),
+      base.productLookupQuery,
+      base.label,
+      base.keywords,
+    );
+  }
+}
+
 function isLowSignalScan(base) {
   const ocrLen = String(base.ocrText || "").trim().length;
   const labelLen = String(base.label || "").trim().length;
@@ -437,6 +581,61 @@ function isLowSignalScan(base) {
     .split(/\s+/)
     .filter(Boolean).length;
   return ocrLen < 10 && labelLen < 12 && kwCount < 2 && qTok < 4;
+}
+
+function computeConfidence(base) {
+  if (base.error || base.analysisError || base.qualityWarning) {
+    return {
+      level: "low",
+      score: 0,
+      reasons: ["Capture or analysis had an error."],
+    };
+  }
+
+  let score = 0;
+  const reasons = [];
+  const ocrLen = String(base.ocrText || "").trim().length;
+  const labelLen = String(base.label || "").trim().length;
+  const kwCount = Array.isArray(base.keywords) ? base.keywords.length : 0;
+  const topCount = Array.isArray(base.topQueries) ? base.topQueries.length : 0;
+  const query = String(base.productLookupQuery || "").trim();
+  const tokenCount = query.split(/\s+/).filter(Boolean).length;
+
+  if (ocrLen >= 18) {
+    score += 40;
+    reasons.push("Readable OCR text detected.");
+  } else if (ocrLen >= 8) {
+    score += 20;
+    reasons.push("Some OCR text detected.");
+  } else {
+    reasons.push("No strong OCR text signal.");
+  }
+
+  if (labelLen >= 18) {
+    score += 25;
+    reasons.push("Specific product label generated.");
+  } else if (labelLen >= 10) {
+    score += 12;
+  }
+
+  if (kwCount >= 3) {
+    score += 15;
+    reasons.push("Multiple product attributes found.");
+  } else if (kwCount >= 1) {
+    score += 8;
+  }
+
+  if (tokenCount >= 4) score += 10;
+  if (topCount >= 2) score += 8;
+  if (base.brandHypothesis) score += 6;
+  if (base.reasoningAssistUsed) {
+    score -= 8;
+    reasons.push("Used fallback reasoning due to weak direct signal.");
+  }
+
+  score = Math.max(0, Math.min(100, score));
+  const level = score >= 70 ? "high" : score >= 40 ? "medium" : "low";
+  return { level, score, reasons: reasons.slice(0, 3) };
 }
 
 async function recoverQueriesWithReasoning(cropDataUrl, pageContext, base) {
@@ -812,9 +1011,13 @@ async function handleScanResult(msg, tab) {
     visualDiscriminators: [],
     topQueries: [],
     ocrText: null,
+    ocrHints: null,
     ocrError: null,
     reasoningAssistUsed: false,
     reasoningNote: null,
+    confidenceLevel: "low",
+    confidenceScore: 0,
+    confidenceReasons: [],
     qualityWarning: null,
     sourceTabId: tab?.id ?? null,
     sourcePageUrl: msg.pageUrl || tab?.url || null,
@@ -828,6 +1031,7 @@ async function handleScanResult(msg, tab) {
   try {
     const ocr = await extractOcrTextFromCrop(msg.cropDataUrl);
     base.ocrText = ocr?.text || null;
+    base.ocrHints = extractOcrHints(base.ocrText);
   } catch (e) {
     base.ocrError = e?.message || String(e);
   }
@@ -854,6 +1058,8 @@ async function handleScanResult(msg, tab) {
       pageTitle: msg.pageTitle || tab?.title || "",
       pageUrl: msg.pageUrl || tab?.url || "",
     });
+    enforceBrandFirstQuery(base, base.ocrHints);
+    applyQuerySanityGuards(base);
   } catch (e) {
     base.analysisError = e?.message || String(e);
   }
@@ -898,9 +1104,18 @@ async function handleScanResult(msg, tab) {
         pageTitle: msg.pageTitle || tab?.title || "",
         pageUrl: msg.pageUrl || tab?.url || "",
       });
+      enforceBrandFirstQuery(base, base.ocrHints);
+      applyQuerySanityGuards(base);
     } catch (e) {
       base.reasoningNote = e?.message || String(e);
     }
+  }
+
+  if (!base.error && !base.analysisError) {
+    const conf = computeConfidence(base);
+    base.confidenceLevel = conf.level;
+    base.confidenceScore = conf.score;
+    base.confidenceReasons = conf.reasons;
   }
 
   try {
@@ -912,11 +1127,7 @@ async function handleScanResult(msg, tab) {
         .toLowerCase()
         .replace(/[\s-]+/g, "_") || "amazon";
     const skipPdpGuess = queryTooSpecificForRiskyAmazonPdpGuess(resolveQuery);
-    if (
-      resolveQuery &&
-      !skipPdpGuess &&
-      (destForResolve === "amazon" || destForResolve === "google_shopping")
-    ) {
+    if (resolveQuery && !skipPdpGuess && (destForResolve === "amazon" || destForResolve === "google_shopping")) {
       base.resolvedAmazonListingUrl = await tryResolveAmazonListingUrl(resolveQuery, tag);
     }
   } catch (e) {

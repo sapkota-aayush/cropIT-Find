@@ -271,6 +271,25 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.cp-btn-icon {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+}
+.cp-btn-soft {
+  background: rgba(255, 255, 255, 0.06);
+}
+.cp-btn-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #b7c0d3;
 }
 .cp-preview-meta {
   margin: -4px 0 8px;
@@ -630,12 +649,12 @@
             <img class="cp-preview" data-cp-preview-image alt="Selection preview" />
             <p class="cp-muted" data-cp-preview-status></p>
             <div class="cp-grid">
-              <button type="button" class="cp-btn" data-cp-adjust="up">Move up</button>
-              <button type="button" class="cp-btn" data-cp-adjust="expand">Expand</button>
-              <button type="button" class="cp-btn" data-cp-adjust="down">Move down</button>
-              <button type="button" class="cp-btn" data-cp-adjust="left">Move left</button>
-              <button type="button" class="cp-btn" data-cp-adjust="shrink">Shrink</button>
-              <button type="button" class="cp-btn" data-cp-adjust="right">Move right</button>
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="up" aria-label="Move up"><span class="cp-btn-icon">↑</span></button>
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="expand" aria-label="Expand"><span class="cp-btn-icon">⤢</span><span class="cp-btn-label">Expand</span></button>
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="down" aria-label="Move down"><span class="cp-btn-icon">↓</span></button>
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="left" aria-label="Move left"><span class="cp-btn-icon">←</span></button>
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="shrink" aria-label="Shrink"><span class="cp-btn-icon">⤡</span><span class="cp-btn-label">Shrink</span></button>
+              <button type="button" class="cp-btn cp-btn-soft" data-cp-adjust="right" aria-label="Move right"><span class="cp-btn-icon">→</span></button>
             </div>
             <div class="cp-actions">
               <button type="button" class="cp-btn" data-cp-redraw>Redraw</button>
